@@ -1,38 +1,12 @@
 mod store;
 mod snapshot;
+mod cli;
+mod metadata;
 
-use clap::{Parser, Subcommand};
-use store::KVStore;
-
-#[derive(Parser)]
-#[command(name = "kvstore")]
-#[command(about = "A simple key-value store with snapshot support", long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-
-    /// Path to the database directory
-    #[arg(short, long, default_value = "snapshots")] 
-    db_dir: String,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    Set {
-        key: String,
-        value: String,
-    },
-    Get {
-        key: String,
-    },
-    Delete {
-        key: String,
-    },
-    Restore {
-        hash: String,
-    },
-    ListSnapshots,
-}
+use clap::Parser;
+use cli::{Cli, Commands};
+use store::kv::KVStore;
+use store::trait_def::StorageBackend;
 
 fn main() {
     let cli = Cli::parse();
@@ -45,6 +19,8 @@ fn main() {
         Commands::Set { key, value } => {
             store.set(key.clone(), value.clone());
             println!("Set {} = {}", key, value);
+            let snap_id = store.snapshot_named(&cli.db_dir, "set", key).expect("Auto-snapshot failed");
+            println!("Snapshot saved: {}", snap_id);
         }
         Commands::Get { key } => {
             match store.get(key) {
@@ -55,6 +31,8 @@ fn main() {
         Commands::Delete { key } => {
             store.delete(key);
             println!("Deleted key: {}", key);
+            let snap_id = store.snapshot_named(&cli.db_dir, "delete", key).expect("Auto-snapshot failed");
+            println!("Snapshot saved: {}", snap_id);
         }
         Commands::Restore { hash } => {
             store.restore_by_hash(&cli.db_dir, hash).expect("Restore failed");
@@ -66,10 +44,11 @@ fn main() {
                 println!("{}", snap);
             }
         }
-    }
-
-    if let Commands::Set { .. } | Commands::Delete { .. } = &cli.command {
-        let hash = store.snapshot_hashed(&cli.db_dir).expect("Auto-snapshot failed");
-        println!("Snapshot saved with hash: {}", hash);
+        Commands::Compare { hash1, hash2 } => {
+            match KVStore::compare_snapshots(&cli.db_dir, hash1, hash2) {
+                Ok(diff) => println!("{}", diff),
+                Err(e) => println!("Failed to compare: {}", e),
+            }
+        }
     }
 }
