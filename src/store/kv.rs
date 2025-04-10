@@ -2,39 +2,40 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use serde::{Serialize, Deserialize};
+use bincode;
 use sha2::{Sha256, Digest};
 use chrono::Utc;
 use crate::snapshot;
-use crate::store::trait_def::StorageBackend;
+// use crate::store::trait_def::StorageBackend;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct KVStore {
     pub map: HashMap<String, String>,
 }
 
-impl StorageBackend for KVStore {
-    fn set(&mut self, key: String, value: String) {
-        self.map.insert(key, value);
-    }
+// impl StorageBackend for KVStore {
+//     fn set(&mut self, key: String, value: String) {
+//         self.map.insert(key, value);
+//     }
 
-    fn get(&self, key: &str) -> Option<&String> {
-        self.map.get(key)
-    }
+//     fn get(&self, key: &str) -> Option<&String> {
+//         self.map.get(key)
+//     }
 
-    fn delete(&mut self, key: &str) {
-        self.map.remove(key);
-    }
+//     fn delete(&mut self, key: &str) {
+//         self.map.remove(key);
+//     }
 
-    fn serialize(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        Ok(bincode::serialize(self)?)
-    }
+//     fn serialize(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+//         Ok(bincode::serialize(self)?)
+//     }
 
-    fn deserialize(&mut self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        let restored: KVStore = bincode::deserialize(data)?;
-        self.map = restored.map;
-        Ok(())
-    }
-}
+//     fn deserialize(&mut self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+//         let restored: KVStore = bincode::deserialize(data)?;
+//         self.map = restored.map;
+//         Ok(())
+//     }
+// }
 
 impl KVStore {
     pub fn new() -> Self {
@@ -54,8 +55,7 @@ impl KVStore {
     }
 
     pub fn snapshot_named(&self, dir: &str, operation: &str, key: &str) -> Result<String, Box<dyn std::error::Error>> {
-        fs::create_dir_all(dir)?;
-        let bytes = StorageBackend::serialize(self)?;
+        let bytes = bincode::serialize(&self)?;
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
         let full_hash = format!("{:x}", hasher.finalize());
@@ -74,11 +74,15 @@ impl KVStore {
             let entry = entry?;
             let path = entry.path();
             if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                if name.contains(hash) {
-                    let restored = snapshot::load_snapshot(path.to_str().unwrap())?;
-                    self.map = restored.map;
-                    return Ok(())
-                }
+            if name.contains(hash) {
+                let restored = snapshot::load_snapshot(path.to_str().unwrap())?;
+                self.map = restored.map;
+
+                // Create a new snapshot with the same content as this hash snapshot
+                self.snapshot_named(dir, "restored", "same_content")?;
+
+                return Ok(());
+            }
             }
         }
         Err(From::from("Snapshot hash not found"))
